@@ -235,6 +235,7 @@ struct ExecutorQueues {
     last_vruntime: u64,
     preempt_timer_duration: Duration,
     spin_before_park: Option<Duration>,
+    pebble: crate::Pebble,
 }
 
 impl ExecutorQueues {
@@ -248,6 +249,7 @@ impl ExecutorQueues {
             last_vruntime: 0,
             preempt_timer_duration: Duration::from_secs(1),
             spin_before_park: None,
+            pebble: crate::Pebble::new(),
         }))
     }
 
@@ -442,6 +444,7 @@ impl LocalExecutor {
 
     fn init(&mut self) -> io::Result<()> {
         let queues = self.queues.clone();
+        let queues_weak = Rc::downgrade(&queues);
         let index = 0;
 
         let io_requirements = IoRequirements::new(Latency::NotImportant, 0);
@@ -453,6 +456,9 @@ impl LocalExecutor {
                 Shares::Static(1000),
                 io_requirements,
                 move || {
+                    // Commenting out the next line causes `cargo t -- memory_leak` to fail
+                    let queues = queues_weak.upgrade().unwrap();
+
                     let mut queues = queues.borrow_mut();
                     queues.maybe_activate(index);
                 },
@@ -1103,6 +1109,14 @@ mod test {
     fn spawn_without_executor() {
         let _ = LocalExecutor::make_default();
         let _ = Task::local(async move {});
+    }
+
+    #[test]
+    fn memory_leak() {
+        {
+            LocalExecutor::make_default();
+        }
+        assert_eq!(crate::Pebble::total(), 0)
     }
 
     #[test]

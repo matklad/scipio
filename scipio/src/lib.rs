@@ -48,11 +48,33 @@ extern crate scopeguard;
 
 use crate::parking::Reactor;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 mod parking;
 mod sys;
 pub mod task;
+
+#[derive(Debug)]
+pub struct Pebble {
+    id: usize,
+}
+static TOTAL: AtomicUsize = AtomicUsize::new(0);
+
+impl Pebble {
+    pub fn total() -> usize {
+        TOTAL.load(Ordering::SeqCst)
+    }
+    pub fn new() -> Pebble {
+        let id = TOTAL.fetch_add(1, Ordering::SeqCst);
+        Pebble { id }
+    }
+}
+impl Drop for Pebble {
+    fn drop(&mut self) {
+        TOTAL.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 #[cfg(test)]
 macro_rules! test_executor {

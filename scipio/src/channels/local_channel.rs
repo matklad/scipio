@@ -204,29 +204,8 @@ pub fn new_bounded<T>(size: usize) -> (LocalSender<T>, LocalReceiver<T>) {
     LocalChannel::new(ChannelCapacity::Bounded(size))
 }
 
-struct SendWaiter<T> {
-    channel: LocalChannel<T>,
-}
-
 struct RecvWaiter<T> {
     channel: LocalChannel<T>,
-}
-
-impl<T> Future for SendWaiter<T> {
-    type Output = ();
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if !self.channel.is_full() {
-            Poll::Ready(())
-        } else {
-            let mut state = self.channel.state.borrow_mut();
-            state
-                .send_waiters
-                .as_mut()
-                .unwrap()
-                .push_back(cx.waker().clone());
-            Poll::Pending
-        }
-    }
 }
 
 impl<T> Future for RecvWaiter<T> {
@@ -312,11 +291,18 @@ impl<T> LocalSender<T> {
     /// [`send`]: struct.LocalSender.html#method.send
     pub async fn send(&self, item: T) -> Result<(), ChannelError<T>> {
         if self.is_full() {
-            let waiter = SendWaiter {
-                channel: LocalChannel {
-                    state: self.channel.state.clone(),
-                },
-            };
+            let waiter = futures_lite::future::poll_fn(|cx| {
+                if self.channel.is_full() {
+                    let mut state = self.channel.state.borrow_mut();
+                    state
+                        .send_waiters
+                        .as_mut()
+                        .unwrap()
+                        .push_back(cx.waker().clone());
+                    return Poll::Pending;
+                }
+                Poll::Ready(())
+            });
             waiter.await;
         }
         self.try_send(item)

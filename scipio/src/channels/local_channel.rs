@@ -311,17 +311,15 @@ impl<T> LocalSender<T> {
     ///
     /// [`send`]: struct.LocalSender.html#method.send
     pub async fn send(&self, item: T) -> Result<(), ChannelError<T>> {
-        if !self.is_full() {
-            self.try_send(item)
-        } else {
+        if self.is_full() {
             let waiter = SendWaiter {
                 channel: LocalChannel {
                     state: self.channel.state.clone(),
                 },
             };
             waiter.await;
-            self.try_send(item)
         }
+        self.try_send(item)
     }
 
     /// Checks if there is room to send data in this channel
